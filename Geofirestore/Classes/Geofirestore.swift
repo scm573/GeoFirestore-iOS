@@ -383,13 +383,13 @@ public class GFSQuery {
                         // a key exited event, but a key moved or entered event. These events will be triggered by updates
                         // to a different query
                         if self.queriesContain(geoHash) {
-                            let info: GFSQueryLocationInfo? = self.locationInfos[key]
-                            self.locationInfos.removeValue(forKey: key)
+                            let info: GFSQueryLocationInfo? = self.locationInfos[snapshot]
+                            self.locationInfos.removeValue(forKey: snapshot)
                             // Key was in query, notify about key exited
                             if info?.isInQuery != nil {
                                 for (offset: _, element: (key: _, value: block)) in self.keyExitedObservers.enumerated() {
                                     self.geoFirestore.callbackQueue.async {
-                                        block(key, info!.location)
+                                        block(snapshot, info!.location)
                                     }
                                 }
                             }

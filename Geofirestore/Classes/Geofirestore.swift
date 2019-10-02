@@ -194,7 +194,7 @@ public enum GFSEventType {
 
 
 
-public typealias GFSQueryResultBlock = (String?, CLLocation?) -> Void
+public typealias GFSQueryResultBlock = (DocumentSnapshot?, CLLocation?) -> Void
 public typealias GFSReadyBlock = () -> Void
 public typealias GFSQueryHandle = UInt
 
@@ -225,7 +225,7 @@ public class GFSQuery {
      */
     public var searchLimit: Int?
     
-    internal var locationInfos = [String: GFSQueryLocationInfo]()
+    internal var locationInfos = [DocumentSnapshot: GFSQueryLocationInfo]()
     internal var queries = Set<GFGeoHashQuery>()
     internal var handles = [GFGeoHashQuery: GFSGeoHashQueryListener]()
     internal var outstandingQueries = Set<GFGeoHashQuery>()
@@ -262,13 +262,13 @@ public class GFSQuery {
         fatalError("Override in subclass.")
     }
     
-    internal func updateLocationInfo(_ location: CLLocation, forKey key: String) {
-        var info: GFSQueryLocationInfo? = locationInfos[key]
+    internal func updateLocationInfo(_ location: CLLocation, forDoc doc: DocumentSnapshot) {
+        var info: GFSQueryLocationInfo? = locationInfos[doc]
         var isNew = false
         if info == nil {
             isNew = true
             info = GFSQueryLocationInfo()
-            locationInfos[key] = info
+            locationInfos[doc] = info
         }
         
         let changedLocation: Bool = !isNew && !(info?.location?.coordinate.latitude == location.coordinate.latitude && info?.location!.coordinate.longitude == location.coordinate.longitude)
@@ -279,22 +279,22 @@ public class GFSQuery {
         info!.isInQuery = locationIsInQuery(loc: location)
         info!.geoHash = GFGeoHash.new(withLocation: location.coordinate)
         
-        if (isNew || !(wasInQuery ?? false)) && info?.isInQuery != nil {
+        if (isNew || !(wasInQuery ?? false)) && info?.isInQuery == true {
             for (offset: _, element: (key: _, value: block)) in keyEnteredObservers.enumerated() {
                 self.geoFirestore.callbackQueue.async {
-                    block(key, info!.location)
+                    block(doc, info!.location)
                 }
             }
-        } else if !isNew && changedLocation && info?.isInQuery != nil {
+        } else if !isNew && changedLocation && info?.isInQuery == true {
             for (offset: _, element: (key: _, value: block)) in keyMovedObservers.enumerated() {
                 self.geoFirestore.callbackQueue.async {
-                    block(key, info!.location)
+                    block(doc, info!.location)
                 }
             }
-        } else if wasInQuery ?? false && info?.isInQuery == nil {
+        } else if wasInQuery ?? false && info?.isInQuery == false {
             for (offset: _, element: (key: _, value: block)) in keyExitedObservers.enumerated() {
                 self.geoFirestore.callbackQueue.async {
-                    block(key, info!.location)
+                    block(doc, info!.location)
                 }
             }
         }
@@ -316,10 +316,10 @@ public class GFSQuery {
             if let key = snapshot?.documentID {
                 if let l = snapshot?.get("l") as? [Double?], let lat = l[0], let lon = l[1] {
                     let location = CLLocation(latitude: lat, longitude: lon)
-                    updateLocationInfo(location, forKey: key)
+                    updateLocationInfo(location, forDoc: snapshot!)
                 } else if let l = snapshot?.get("l") as? GeoPoint {
                     let location = l.locationValue()
-                    updateLocationInfo(location, forKey: key)
+                    updateLocationInfo(location, forDoc: snapshot!)
                 } else{
                     //TODO: error??
                 }
@@ -335,10 +335,10 @@ public class GFSQuery {
             if let key = snapshot?.documentID {
                 if let l = snapshot?.get("l") as? [Double?], let lat = l[0], let lon = l[1] {
                     let location = CLLocation(latitude: lat, longitude: lon)
-                    updateLocationInfo(location, forKey: key)
+                    updateLocationInfo(location, forDoc: snapshot!)
                 } else if let l = snapshot?.get("l") as? GeoPoint {
                     let location = l.locationValue()
-                    updateLocationInfo(location, forKey: key)
+                    updateLocationInfo(location, forDoc: snapshot!)
                 } else{
                     //TODO: error??
                 }
@@ -356,7 +356,7 @@ public class GFSQuery {
                 
                 var info: GFSQueryLocationInfo? = nil
                 let key = snapshot.documentID
-                info = locationInfos[key]
+                info = locationInfos[snapshot]
                 if info != nil {
                     if let l = snapshot.get("l") as? [Double?], let lat = l[0], let lon = l[1]{
                         let location = CLLocation(latitude: lat, longitude: lon)
@@ -365,13 +365,13 @@ public class GFSQuery {
                         // a key exited event, but a key moved or entered event. These events will be triggered by updates
                         // to a different query
                         if self.queriesContain(geoHash) {
-                            let info: GFSQueryLocationInfo? = self.locationInfos[key]
-                            self.locationInfos.removeValue(forKey: key)
+                            let info: GFSQueryLocationInfo? = self.locationInfos[snapshot]
+                            self.locationInfos.removeValue(forKey: snapshot)
                             // Key was in query, notify about key exited
-                            if info?.isInQuery != nil {
+                            if info?.isInQuery == true {
                                 for (offset: _, element: (key: _, value: block)) in self.keyExitedObservers.enumerated() {
                                     self.geoFirestore.callbackQueue.async {
-                                        block(key, info!.location)
+                                        block(snapshot, info!.location)
                                     }
                                 }
                             }
@@ -383,13 +383,13 @@ public class GFSQuery {
                         // a key exited event, but a key moved or entered event. These events will be triggered by updates
                         // to a different query
                         if self.queriesContain(geoHash) {
-                            let info: GFSQueryLocationInfo? = self.locationInfos[key]
-                            self.locationInfos.removeValue(forKey: key)
+                            let info: GFSQueryLocationInfo? = self.locationInfos[snapshot]
+                            self.locationInfos.removeValue(forKey: snapshot)
                             // Key was in query, notify about key exited
                             if info?.isInQuery != nil {
                                 for (offset: _, element: (key: _, value: block)) in self.keyExitedObservers.enumerated() {
                                     self.geoFirestore.callbackQueue.async {
-                                        block(key, info!.location)
+                                        block(snapshot, info!.location)
                                     }
                                 }
                             }
@@ -502,10 +502,10 @@ public class GFSQuery {
         queries = newQueries as! Set<GFGeoHashQuery>
         for (offset: _, element: (key: key, value: info)) in self.locationInfos.enumerated(){
             if let location = info.location{
-                self.updateLocationInfo(location, forKey: key)
+                self.updateLocationInfo(location, forDoc: key)
             }
         }
-        var oldLocations = [String]()
+        var oldLocations = [DocumentSnapshot]()
         for (offset: _, element: (key: key, value: info)) in self.locationInfos.enumerated(){
             if !self.queriesContain(info.geoHash) {
                 oldLocations.append(key)
